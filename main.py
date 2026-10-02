@@ -533,6 +533,69 @@ def open_config():
     os.startfile(CONFIG_FILE)
 
 
+
+def get_ethernet_status():
+    """Return Ethernet physical/link/internet status for the status indicator."""
+    ps = "$adapters = Get-NetAdapter -Physical -ErrorAction SilentlyContinue | " \
+         "Where-Object {$_.Name -notmatch 'Wi-Fi|Wireless|WLAN'} | " \
+         "Select-Object Name, MediaConnectionState, Status, LinkSpeed; " \
+         "$adapters | ForEach-Object { " \
+         "Write-Output ('NAME=' + $_.Name); " \
+         "Write-Output ('STATE=' + $_.MediaConnectionState); " \
+         "Write-Output ('STATUS=' + $_.Status) }"
+    command = 'powershell -NoProfile -Command "' + ps.replace('"', '\\"') + '"'
+    code, output = run_command(command, timeout=10)
+
+    if code != 0 or not output.strip():
+        return 'no_cable', 'NO CABLE'
+
+    connected = False
+    for line in output.splitlines():
+        line = line.strip().upper()
+        if line == 'STATE=CONNECTED' or line == 'STATUS=UP':
+            connected = True
+            break
+
+    if not connected:
+        return 'no_cable', 'NO CABLE'
+
+    internet_ok, _ = internet_test()
+    if internet_ok:
+        return 'internet', 'CONNECTED WITH INTERNET'
+    return 'no_internet', 'CONNECTED WITHOUT INTERNET'
+
+
+def update_ethernet_indicator():
+    """Refresh the Ethernet status badge without blocking the GUI."""
+    def worker():
+        status, message = get_ethernet_status()
+        root.after(0, lambda: set_ethernet_indicator(status, message))
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def set_ethernet_indicator(status, message):
+    """Update the top-right Ethernet icon/status badge."""
+    if status == 'internet':
+        ethernet_badge.configure(
+            text='  🖧  CONNECTED WITH INTERNET  ',
+            foreground='white',
+            background='#16a34a'
+        )
+    elif status == 'no_internet':
+        ethernet_badge.configure(
+            text='  🖧  CONNECTED WITHOUT INTERNET  ',
+            foreground='white',
+            background='#dc2626'
+        )
+    else:
+        ethernet_badge.configure(
+            text='  🖧  NO CABLE  ',
+            foreground='#333333',
+            background='#d1d5db'
+        )
+    root.after(5000, update_ethernet_indicator)
+
+
 root = tk.Tk()
 root.title(APP_NAME + f' v{VERSION}')
 root.geometry('980x700')
@@ -546,9 +609,23 @@ except tk.TclError:
 
 header = ttk.Frame(root, padding=15)
 header.pack(fill='x')
-ttk.Label(header, text=APP_NAME, font=('Segoe UI', 20, 'bold')).pack(anchor='w')
-ttk.Label(header, text='Windows network diagnosis, recovery and controlled repair', font=('Segoe UI', 10)).pack(anchor='w')
-ttk.Label(header, text='Administrator: YES' if is_admin() else 'Administrator: NO').pack(anchor='w', pady=(7, 0))
+
+header_left = ttk.Frame(header)
+header_left.pack(side='left', fill='x', expand=True)
+ttk.Label(header_left, text=APP_NAME, font=('Segoe UI', 20, 'bold')).pack(anchor='w')
+ttk.Label(header_left, text='Windows network diagnosis, recovery and controlled repair', font=('Segoe UI', 10)).pack(anchor='w')
+ttk.Label(header_left, text='Administrator: YES' if is_admin() else 'Administrator: NO').pack(anchor='w', pady=(7, 0))
+
+# Ethernet status badge: top-right of the application.
+ethernet_badge = tk.Label(
+    header,
+    text='  🖧  CHECKING...  ',
+    font=('Segoe UI', 10, 'bold'),
+    padx=10,
+    pady=7,
+    relief='flat'
+)
+ethernet_badge.pack(side='right', anchor='ne', padx=(10, 0))
 
 bar = ttk.Frame(root, padding=(15, 0, 15, 10))
 bar.pack(fill='x')
@@ -582,4 +659,7 @@ output.insert(tk.END, f'''Hospital Network Doctor v{VERSION}\n\n'
 'Subnet: 255.255.255.0\n'
 'DNS: 8.8.8.8 / 8.8.4.4\n\n'
 'IMPORTANT: Driver updates require Windows Update access. Force Connect cannot repair a dead cable, failed switch port, ISP outage, or a Wi-Fi network that requires credentials which are not already saved.\n''')
+# Start the Ethernet status monitor.
+root.after(100, update_ethernet_indicator)
+
 root.mainloop()
