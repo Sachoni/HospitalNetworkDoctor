@@ -1,39 +1,144 @@
-# ================================================================
-# HOSPITAL NETWORK DOCTOR
-# ================================================================
-# Application purpose:
-#   This is a Windows-based network diagnosis and recovery tool
-#   designed for use in a hospital environment.
+# ==============================================================================
+#                         HOSPITAL NETWORK DOCTOR
+# ==============================================================================
 #
-# Main capabilities:
-#   - Diagnose the current network configuration
-#   - Check IPv4, subnet mask, gateway and DNS
-#   - Test gateway connectivity
-#   - Test DNS resolution
-#   - Test Internet connectivity
-#   - Repair network settings using manually supplied values
-#   - Provide a "Trouble box" for entering network configuration
-#   - Force network reconnection/recovery
-#   - Rescan network devices
-#   - Reconnect to an existing saved Wi-Fi profile
-#   - Search Windows Update for applicable driver updates
-#   - Display Ethernet physical/link/Internet status
-#   - Maintain a log of important operations
+# Application Name : Hospital Network Doctor
+# Version          : 2.0
+# Platform         : Microsoft Windows
+# Language         : Python
+# Interface        : Tkinter GUI
 #
-# IMPORTANT:
-#   Some operations require Administrator privileges because
-#   Windows does not allow normal users to modify certain network
-#   and driver settings.
-# ================================================================
-
-
-# ------------------------------------------------
-# STANDARD PYTHON / SYSTEM LIBRARY IMPORTS
-# ------------------------------------------------
-
-# ctypes allows Python to communicate with Windows system APIs.
-# It is used here to check whether the program is running
-# with Administrator privileges.
+# ------------------------------------------------------------------------------
+# PURPOSE
+# ------------------------------------------------------------------------------
+#
+# Hospital Network Doctor is a Windows-based network diagnosis and recovery
+# utility designed to help ICT personnel troubleshoot common network problems
+# on hospital computers.
+#
+# The application provides a central interface for checking network
+# configuration, testing connectivity, recovering network connections,
+# applying approved network settings, and assisting with network driver
+# troubleshooting.
+#
+# ------------------------------------------------------------------------------
+# MAIN FUNCTIONS
+# ------------------------------------------------------------------------------
+#
+# 1. NETWORK DIAGNOSIS
+#    - Reads the computer's current network configuration.
+#    - Detects the IPv4 address, subnet mask, default gateway, and DNS servers.
+#    - Checks for invalid or missing network configuration.
+#    - Detects APIPA addresses (169.254.x.x).
+#    - Tests communication with the default gateway.
+#    - Tests DNS resolution.
+#    - Tests basic Internet connectivity.
+#    - Produces a readable diagnosis report.
+#
+# 2. TRYFIX / TROUBLE BOX
+#    - Provides a graphical interface for entering or correcting network
+#      configuration values.
+#    - Allows the ICT technician to specify:
+#          * IP address
+#          * Subnet mask
+#          * Default gateway
+#          * Preferred DNS server
+#          * Alternative DNS server
+#    - Validates the entered IPv4 addresses before making changes.
+#    - Requests confirmation before applying network changes.
+#
+# 3. CONTROLLED NETWORK REPAIR
+#    - Applies a predefined network configuration when static-IP repair
+#      has been enabled in the configuration file.
+#    - Configures the IP address, subnet mask, gateway, and DNS servers.
+#    - Flushes the Windows DNS cache after the repair.
+#
+# 4. FORCE CONNECT
+#    - Attempts several Windows network recovery operations.
+#    - Enables disabled network adapters.
+#    - Restarts an active network adapter when applicable.
+#    - Refreshes IP configuration using DHCP commands.
+#    - Flushes the DNS cache.
+#    - Requests a Windows device rescan.
+#    - Attempts to reconnect to an existing saved Wi-Fi profile.
+#    - Performs connectivity tests after recovery.
+#
+# 5. NETWORK DRIVER UPDATE
+#    - Displays detected network adapters.
+#    - Uses the Windows Update system to search for applicable driver updates.
+#    - Attempts to install available driver-class updates.
+#    - Rescans Windows devices after the update process.
+#    - Reports whether Windows indicates that a restart is required.
+#
+# 6. ETHERNET STATUS MONITOR
+#    - Continuously monitors the physical Ethernet connection.
+#    - Displays one of three connection states:
+#
+#          CONNECTED WITH INTERNET
+#          CONNECTED WITHOUT INTERNET
+#          NO CABLE
+#
+#    - The status is displayed in the top-right corner of the application.
+#
+# 7. CONFIGURATION MANAGEMENT
+#    - Stores network configuration in:
+#
+#          network_config.json
+#
+#    - The configuration contains the approved network baseline and
+#      optional per-computer static IP settings.
+#
+# 8. ACTIVITY LOGGING
+#    - Records important operations and their results in:
+#
+#          network_doctor.log
+#
+#    - Logging helps ICT personnel review previous diagnosis, repair,
+#      Force Connect, and driver-update operations.
+#
+# ------------------------------------------------------------------------------
+# DEFAULT NETWORK BASELINE
+# ------------------------------------------------------------------------------
+#
+# Subnet Mask       : 255.255.255.0
+# Default Gateway   : 10.58.27.1
+# Preferred DNS     : 8.8.8.8
+# Alternative DNS   : 8.8.4.4
+#
+# The IP address is intentionally not hard-coded as a universal static address
+# because individual computers may require unique IP addresses.
+#
+# ------------------------------------------------------------------------------
+# ADMINISTRATOR PRIVILEGES
+# ------------------------------------------------------------------------------
+#
+# Some operations in this application require Windows Administrator privileges.
+# These include network configuration changes, adapter operations, and driver
+# management.
+#
+# The application checks for Administrator privileges before performing
+# operations that require elevated permissions.
+#
+# ------------------------------------------------------------------------------
+# SAFETY NOTE
+# ------------------------------------------------------------------------------
+#
+# Network configuration changes can temporarily disconnect a computer from
+# the network. A technician should confirm the correct IP address for the
+# specific computer before applying a static configuration.
+#
+# Never assign the same static IP address to multiple computers on the same
+# network, as this can cause an IP address conflict.
+#
+# ------------------------------------------------------------------------------
+# DESIGN PRINCIPLE
+# ------------------------------------------------------------------------------
+#
+# The application is intended to assist an ICT technician rather than replace
+# network administration. Diagnosis should normally be performed before
+# changing network settings, and the results should be verified after repair.
+#
+# ==============================================================================
 import ctypes
 
 # json is used for reading and writing the network configuration
@@ -84,6 +189,7 @@ import threading
 # ================================================================
 
 # Name displayed throughout the application.
+# Application identity and local files used by the program.
 APP_NAME = 'Hospital Network Doctor'
 
 # Current application version.
@@ -121,6 +227,8 @@ LOG_FILE = BASE / 'network_doctor.log'
 # individual computers may require different unique static IPs.
 # ================================================================
 
+# Default network settings used when network_config.json is missing.
+# These are the hospital network baseline values already present in the code.
 DEFAULT_CONFIG = {
     'network': {
 
@@ -154,10 +262,15 @@ DEFAULT_CONFIG = {
     }
 }
 
-
 # ================================================================
 # CONFIGURATION LOADING
 # ================================================================
+
+# ----------------------------------------------------------------
+# Configuration loading
+# ----------------------------------------------------------------
+# Creates the configuration file if it does not exist, then reads it.
+# If the file cannot be read, the built-in defaults are returned.
 
 def load_config():
     """
@@ -200,10 +313,12 @@ def load_config():
 CONFIG = load_config()
 
 
+
 # ================================================================
 # ADMINISTRATOR PRIVILEGE CHECK
 # ================================================================
 
+# Check whether Windows is running this program with Administrator privileges.
 def is_admin():
     """
     Determine whether the application is running with
@@ -226,10 +341,16 @@ def is_admin():
         return False
 
 
+
 # ================================================================
 # COMMAND EXECUTION ENGINE
 # ================================================================
 
+
+# Run a Windows command and return:
+#   - the process exit code
+#   - combined standard output and error output
+# A timeout prevents a command from hanging forever.
 def run_command(command, timeout=60):
     """
     Execute a Windows command and capture its output.
@@ -286,9 +407,14 @@ def run_command(command, timeout=60):
         return -1, str(exc)
 
 
+
 # ================================================================
 # LOGGING SYSTEM
 # ================================================================
+
+
+# Append an event to the application's log file.
+# Logging errors are intentionally ignored so logging cannot crash the app.
 
 def log_event(title, body):
     """
@@ -329,6 +455,9 @@ def log_event(title, body):
 # IP CONFIGURATION FUNCTIONS
 # ================================================================
 
+
+# Get the complete Windows network configuration.
+
 def get_ipconfig():
     """
     Run Windows ipconfig /all and return its output.
@@ -345,6 +474,8 @@ def get_ipconfig():
     return run_command('ipconfig /all')[1]
 
 
+# Convert the text returned by 'ipconfig /all' into a small dictionary
+# containing the IPv4 address, subnet mask, gateway, and DNS servers.
 def parse_ipconfig(text):
     """
     Extract important network information from ipconfig /all output.
@@ -468,6 +599,8 @@ def parse_ipconfig(text):
 # NETWORK CONNECTIVITY TESTING
 # ================================================================
 
+# Ping a host twice using the Windows ping command.
+
 def ping(host):
     """
     Ping a specified host using Windows ping.
@@ -492,6 +625,7 @@ def ping(host):
     return code == 0, output
 
 
+# Test DNS resolution using Python's socket resolver.
 def dns_test():
     """
     Test DNS resolution.
@@ -518,6 +652,7 @@ def dns_test():
         return False, f'DNS resolution failed: {exc}'
 
 
+# Test basic Internet reachability by pinging Google's public DNS server.
 def internet_test():
     """
     Test basic Internet reachability.
@@ -538,6 +673,7 @@ def internet_test():
 # IPV4 VALIDATION
 # ================================================================
 
+# Basic IPv4 validation used before applying static network settings.
 def validate_ipv4(ip):
     """
     Validate whether a supplied string looks like a valid IPv4 address.
@@ -570,9 +706,17 @@ def validate_ipv4(ip):
         return False
 
 
+
 # ================================================================
 # NETWORK DIAGNOSIS
 # ================================================================
+
+
+# ----------------------------------------------------------------
+# Network diagnosis
+# ----------------------------------------------------------------
+# Performs the normal network checks without changing the computer's
+# network configuration.
 
 def diagnose():
     """
@@ -790,10 +934,12 @@ def diagnose():
     return text
 
 
+
 # ================================================================
 # ACTIVE NETWORK ADAPTER DETECTION
 # ================================================================
 
+# Find the first active IPv4 network adapter reported by Windows.
 def find_active_adapter():
     """
     Find the first active network adapter that has an IPv4 address.
@@ -819,9 +965,13 @@ def find_active_adapter():
     return output.strip().splitlines()[0] if output.strip() else ''
 
 
+
 # ================================================================
 # NETWORK ADAPTER INFORMATION
 # ================================================================
+
+
+# Return a readable list of installed network adapters and their status.
 
 def get_network_adapters():
     """
@@ -844,9 +994,17 @@ def get_network_adapters():
     return run_command(cmd)[1]
 
 
+
 # ================================================================
 # AUTOMATED NETWORK REPAIR
 # ================================================================
+
+
+# ----------------------------------------------------------------
+# Controlled network repair
+# ----------------------------------------------------------------
+# This repair function intentionally refuses to apply a static IP unless
+# apply_static_ip is enabled in network_config.json.
 
 def repair():
     """
@@ -970,6 +1128,11 @@ def repair():
 # TRYFIX WINDOW
 # ================================================================
 
+# ----------------------------------------------------------------
+# TRYFIX / Trouble box
+# ----------------------------------------------------------------
+# Opens a window where the technician can review or enter the five
+# network values required for a static configuration.
 def tryfix_window():
     """
     Open the manual network configuration window.
@@ -1107,6 +1270,7 @@ def tryfix_window():
     # RELOAD CURRENT NETWORK VALUES
     # ------------------------------------------------------------
 
+# Reload the current network settings without closing the Trouble box.
     def reload_current():
         """
         Refresh all fields with the computer's current network values.
@@ -1130,9 +1294,13 @@ def tryfix_window():
             e.delete(0, tk.END)
             e.insert(0, value)
 
+
     # ------------------------------------------------------------
     # APPLY MANUAL NETWORK FIX
     # ------------------------------------------------------------
+
+
+# Validate the technician's entries and apply them after confirmation.
 
     def apply_tryfix():
         """
@@ -1205,9 +1373,14 @@ def tryfix_window():
         if not confirm:
             return
 
+
         # --------------------------------------------------------
         # NETWORK CONFIGURATION COMMANDS
         # --------------------------------------------------------
+
+
+# Apply the exact values entered in the Trouble box.
+# The command order is kept the same as the original code.
 
         commands = [
 
@@ -1311,6 +1484,10 @@ def tryfix_window():
 # such as driver/device scans and DHCP renewal can take time.
 # ================================================================
 
+# ----------------------------------------------------------------
+# Force Connect
+# ----------------------------------------------------------------
+# Runs several recovery operations in sequence, then verifies the result.
 def force_connect_worker():
 
     # Administrator privileges are required.
@@ -1327,6 +1504,9 @@ def force_connect_worker():
         return
 
     # List used to store the result of every recovery step.
+
+# Store a report of every recovery step for display and logging.
+
     steps = []
 
     # ------------------------------------------------------------
@@ -1435,7 +1615,13 @@ def force_connect_worker():
         timeout=15
     )
 
+
+# Try reconnecting Wi-Fi using the first saved Windows Wi-Fi profile.
+    # Try reconnecting Wi-Fi using an existing saved Windows Wi-Fi profile.
+    code, profiles = run_command('netsh wlan show profiles', timeout=15)
+
     if code == 0:
+
 
         # Extract profile names from Windows command output.
         names = re.findall(
@@ -1489,6 +1675,10 @@ def force_connect_worker():
 
     # Imported here because the delay is only needed by this
     # background operation.
+
+# Give Windows a short moment to finish network recovery before testing.
+    # Give the adapter a moment, then verify.
+
     import time
 
     # Give Windows a few seconds to reconnect.
@@ -1548,6 +1738,8 @@ def force_connect_worker():
 # FORCE CONNECT RESULT HANDLER
 # ================================================================
 
+# Display the Force Connect report and tell the technician whether
+# Internet connectivity was successfully verified.
 def finish_force_connect(result, internet_ok):
     """
     Display the Force Connect results and inform the user
@@ -1576,9 +1768,17 @@ def finish_force_connect(result, internet_ok):
         )
 
 
+
 # ================================================================
 # FORCE CONNECT BUTTON HANDLER
 # ================================================================
+# Start Force Connect in a background thread so the GUI stays responsive.
+def force_connect():
+    if not is_admin():
+        messagebox.showerror(APP_NAME, 'Run this program as Administrator to use Force Connect.')
+        return
+    show_output('FORCE CONNECT\n\nWorking... Please wait.\n')
+    threading.Thread(target=force_connect_worker, daemon=True).start()
 
 def force_connect():
     """
@@ -1615,6 +1815,10 @@ def force_connect():
 # DRIVER UPDATE WORKER
 # ================================================================
 
+# ----------------------------------------------------------------
+# Network driver update
+# ----------------------------------------------------------------
+# Uses the Windows Update Agent to look for applicable driver updates.
 def update_driver_worker():
     """
     Search Windows Update for applicable driver updates
@@ -1637,11 +1841,16 @@ def update_driver_worker():
 
         return
 
+
     # Store the steps performed by the driver update process.
+
+# Start the report with the network adapters currently detected.
+
     steps = []
 
     # Get current network adapter information.
     adapters = get_network_adapters()
+
 
     steps.append(
         'NETWORK ADAPTERS\n'
@@ -1655,7 +1864,12 @@ def update_driver_worker():
     # Agent and searches for applicable driver-class updates.
     # ------------------------------------------------------------
 
+
+# Ask Windows Update for uninstalled driver-class updates.
+    # Windows Update Agent: search for applicable driver-class updates and install them.
+
     ps = r'''$session = New-Object -ComObject Microsoft.Update.Session; $searcher = $session.CreateUpdateSearcher(); $result = $searcher.Search("IsInstalled=0 and Type='Driver'"); Write-Output ("Found driver updates: " + $result.Updates.Count); for ($i=0; $i -lt $result.Updates.Count; $i++) { Write-Output ("UPDATE " + ($i+1) + ": " + $result.Updates.Item($i).Title) }; if ($result.Updates.Count -gt 0) { $updates = New-Object -ComObject Microsoft.Update.UpdateColl; for ($i=0; $i -lt $result.Updates.Count; $i++) { $u=$result.Updates.Item($i); if (-not $u.EulaAccepted) { $u.AcceptEula() }; [void]$updates.Add($u) }; $downloader=$session.CreateUpdateDownloader(); $downloader.Updates=$updates; $d=$downloader.Download(); Write-Output ("Download result: " + $d.ResultCode); $installer=$session.CreateUpdateInstaller(); $installer.Updates=$updates; $r=$installer.Install(); Write-Output ("Install result: " + $r.ResultCode); Write-Output ("Reboot required: " + $r.RebootRequired) }'''
+
 
     # Build the final PowerShell command.
     command = (
@@ -1663,6 +1877,12 @@ def update_driver_worker():
         + ps.replace('"', '\\"')
         + '"'
     )
+
+# Rescan Windows devices after the driver update attempt.
+    # Rescan devices after the update attempt.
+    code, output = run_command('pnputil /scan-devices', timeout=60)
+    steps.append('DEVICE RESCAN\n' + output + f'\nExit code: {code}')
+
 
     # Execute the driver update process.
     code, output = run_command(
@@ -1711,6 +1931,7 @@ def update_driver_worker():
 # DRIVER UPDATE RESULT HANDLER
 # ================================================================
 
+# Show the driver-update report and give the technician a useful result.
 def finish_driver_update(result):
     """
     Display the driver update report and provide an appropriate
@@ -1750,6 +1971,7 @@ def finish_driver_update(result):
 # UPDATE DRIVER BUTTON HANDLER
 # ================================================================
 
+# Ask for confirmation before starting the potentially long driver update.
 def update_driver():
     """
     Start the driver update process after asking the technician
@@ -1796,6 +2018,7 @@ def update_driver():
 # GUI OUTPUT FUNCTION
 # ================================================================
 
+# Replace the main output area with new text.
 def show_output(text):
     """
     Replace the contents of the main output text area
@@ -1818,9 +2041,17 @@ def show_output(text):
     output.see('1.0')
 
 
+
 # ================================================================
 # DIAGNOSIS BUTTON HANDLER
 # ================================================================
+
+# Run diagnosis from the main GUI.
+def run_diagnosis():
+    show_output('Running diagnosis...\n')
+    root.update_idletasks()
+    show_output(diagnose())
+
 
 def run_diagnosis():
     """
@@ -1845,6 +2076,7 @@ def run_diagnosis():
 # OPEN CONFIGURATION FILE
 # ================================================================
 
+# Open network_config.json using the Windows default associated editor.
 def open_config():
     """
     Open the network configuration file using the Windows
@@ -1884,6 +2116,13 @@ def open_config():
 #      No physical Ethernet connection is detected.
 # ================================================================
 
+# ----------------------------------------------------------------
+# Ethernet status indicator
+# ----------------------------------------------------------------
+# The indicator distinguishes between:
+#   - Ethernet connected with Internet
+#   - Ethernet connected without Internet
+#   - No physical Ethernet connection
 def get_ethernet_status():
     """
     Return Ethernet physical/link/internet status for the status indicator.
@@ -1971,6 +2210,8 @@ def get_ethernet_status():
 # ETHERNET STATUS MONITOR
 # ================================================================
 
+# Run the Ethernet check in a background thread so network tests do not
+# freeze the graphical interface.
 def update_ethernet_indicator():
     """
     Refresh the Ethernet status badge without blocking the GUI.
@@ -2005,6 +2246,7 @@ def update_ethernet_indicator():
 # UPDATE ETHERNET STATUS BADGE
 # ================================================================
 
+# Update the top-right status badge with the result from Windows.
 def set_ethernet_indicator(status, message):
     """
     Update the top-right Ethernet icon/status badge.
@@ -2068,6 +2310,7 @@ def set_ethernet_indicator(status, message):
     )
 
 
+
 # ================================================================
 # MAIN TKINTER APPLICATION WINDOW
 # ================================================================
@@ -2075,6 +2318,11 @@ def set_ethernet_indicator(status, message):
 # ================================================================
 
 # Create the main application window.
+# ----------------------------------------------------------------
+# Main graphical interface
+# ----------------------------------------------------------------
+# The GUI is intentionally built with Tkinter, matching the existing app.
+
 root = tk.Tk()
 
 # Set the window title including application version.
@@ -2181,6 +2429,10 @@ ttk.Label(
 # update_ethernet_indicator().
 # ================================================================
 
+
+# Ethernet status badge displayed at the top-right of the application.
+# Ethernet status badge: top-right of the application.
+
 ethernet_badge = tk.Label(
     header,
 
@@ -2199,6 +2451,7 @@ ethernet_badge = tk.Label(
     # Flat visual style.
     relief='flat'
 )
+
 
 # Place the badge on the right side of the header.
 ethernet_badge.pack(
@@ -2226,6 +2479,10 @@ bar.pack(
 #
 #   1. Button text
 #   2. Function executed when the button is clicked
+
+bar = ttk.Frame(root, padding=(15, 0, 15, 10))
+bar.pack(fill='x')
+# Main action buttons. Their existing commands are preserved.
 buttons = [
     ('RUN DIAGNOSIS', run_diagnosis),
     ('REPAIR NETWORK', repair),
@@ -2237,6 +2494,7 @@ buttons = [
 
 # Create every button in the button list.
 for label, command in buttons:
+
 
     ttk.Button(
         bar,
@@ -2316,6 +2574,20 @@ scroll.pack(
 output.insert(
     tk.END,
     f'''Hospital Network Doctor v{VERSION}\n\n'
+=======
+# Main output area where diagnosis, repair, Force Connect, and driver
+# update reports are displayed.
+frame = ttk.Frame(root, padding=(15, 0, 15, 15))
+frame.pack(fill='both', expand=True)
+output = tk.Text(frame, wrap='word', font=('Consolas', 10), padx=12, pady=12)
+scroll = ttk.Scrollbar(frame, orient='vertical', command=output.yview)
+output.configure(yscrollcommand=scroll.set)
+output.pack(side='left', fill='both', expand=True)
+scroll.pack(side='right', fill='y')
+
+# Initial instructions shown when the application starts.
+output.insert(tk.END, f'''Hospital Network Doctor v{VERSION}\n\n'
+>>>>>>> c9f4f23 (≡ƒöÑ Auto-update: Thu 10/08/2026  9:39:30.36)
 '1. Run DIAGNOSIS first.\n'
 '2. TRYFIX lets you enter the correct IP, subnet, gateway and DNS settings.\n'
 '3. FORCE CONNECT attempts adapter recovery, DHCP refresh, DNS flush, device rescan and saved Wi-Fi reconnection.\n'
@@ -2326,6 +2598,7 @@ output.insert(
 'Subnet: 255.255.255.0\n'
 'DNS: 8.8.8.8 / 8.8.4.4\n\n'
 'IMPORTANT: Driver updates require Windows Update access. Force Connect cannot repair a dead cable, failed switch port, ISP outage, or a Wi-Fi network that requires credentials which are not already saved.\n''')
+
  
  
 # ================================================================
@@ -2337,6 +2610,11 @@ output.insert(
 # After the first check, set_ethernet_indicator() schedules
 # another check every five seconds.
 # ================================================================
+
+# Start the Ethernet status monitor shortly after the GUI is created.
+# Start the Ethernet status monitor.
+root.after(100, update_ethernet_indicator)
+
 
 root.after(
     100,
